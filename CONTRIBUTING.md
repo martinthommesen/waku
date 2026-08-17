@@ -75,13 +75,13 @@ those runtime dependencies normally.
 
 ## Checks
 
-Run the focused checks relevant to your change, then run the full baseline
-before opening a pull request:
-
 For daemon-side changes (anything under `crates/`), the fast loop that avoids
 the GPUI desktop build is:
 
     cargo test -p waku-core -p waku-protocol -p waku-client
+
+Run the focused checks relevant to your change, then run the full baseline
+before opening a pull request:
 
 ```sh
 cargo fmt --package waku --package waku-protocol --package waku-client --package waku-core --package waku-daemon -- --check
