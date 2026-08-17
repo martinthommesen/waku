@@ -1,8 +1,10 @@
 //! Daemon-owned, user-editable configuration.
 
-use std::fs;
-use std::io;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
 
 use parking_lot::Mutex;
 use uuid::Uuid;
@@ -91,12 +93,27 @@ fn quarantine_corrupt_settings(path: &Path) -> io::Result<PathBuf> {
 
 fn write_atomic(path: &Path, settings: &DaemonSettings) -> io::Result<()> {
     if let Some(parent) = path.parent() {
+        #[cfg(unix)]
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(parent)?;
+        #[cfg(not(unix))]
         fs::create_dir_all(parent)?;
     }
     let data = serde_json::to_vec_pretty(settings).map_err(to_io_error)?;
     let temporary = path.with_extension("json.tmp");
-    fs::write(&temporary, data)?;
-    fs::rename(temporary, path)
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options.open(&temporary)?;
+    file.write_all(&data)?;
+    file.sync_all()?;
+    fs::rename(&temporary, path)?;
+    #[cfg(unix)]
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+    Ok(())
 }
 
 fn to_io_error(error: impl std::error::Error + Send + Sync + 'static) -> io::Error {
@@ -172,6 +189,28 @@ mod tests {
                 .to_string_lossy()
                 .starts_with("settings.json.corrupt-")
         }));
+        fs::remove_dir_all(directory).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn settings_file_is_private() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = std::env::temp_dir().join(format!("waku-settings-{}", Uuid::new_v4()));
+        let path = directory.join("settings.json");
+
+        let store = DaemonSettingsStore::open(path.clone()).unwrap();
+        store.replace(store.get()).unwrap();
+
+        let file_mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(file_mode, 0o600, "settings file must not be group/world readable");
+        let directory_mode = fs::metadata(&directory).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            directory_mode, 0o700,
+            "settings directory must not be group/world readable"
+        );
+
         fs::remove_dir_all(directory).ok();
     }
 }
