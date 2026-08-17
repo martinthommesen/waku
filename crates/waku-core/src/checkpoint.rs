@@ -16,6 +16,27 @@ use crate::model::{Checkpoint, CheckpointFile, CheckpointStatus, unix_time};
 const TURN_START_METADATA_PREFIX: &str = "Waku-Turn-Start: ";
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
+pub const WAKU_REF_PREFIX: &str = "refs/waku/";
+
+/// Rejects any ref name outside the daemon's own namespace before it reaches
+/// a `git` invocation, so a compromised or buggy client cannot point a
+/// checkpoint operation at a caller-chosen ref elsewhere in the repository.
+pub fn validate_waku_ref(git_ref: &str) -> anyhow::Result<()> {
+    let valid = git_ref.starts_with(WAKU_REF_PREFIX)
+        && git_ref.len() > WAKU_REF_PREFIX.len()
+        && git_ref
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'-' | b'_' | b'.'))
+        && !git_ref.contains("..")
+        && !git_ref.ends_with('/')
+        && !git_ref.ends_with('.');
+    if valid {
+        Ok(())
+    } else {
+        bail!("invalid checkpoint ref name")
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct TurnStartMetadata {
     head: Option<String>,
@@ -134,6 +155,7 @@ pub fn capture_turn(cwd: &Path, session_id: Uuid, turn_count: usize) -> anyhow::
 }
 
 pub fn capture_ref(cwd: &Path, git_ref: &str) -> anyhow::Result<()> {
+    validate_waku_ref(git_ref)?;
     if !is_git_repository(cwd) {
         bail!("checkpoints require a Git repository");
     }
@@ -362,6 +384,7 @@ fn commit_tree(
 }
 
 pub fn restore_ref(cwd: &Path, git_ref: &str) -> anyhow::Result<()> {
+    validate_waku_ref(git_ref)?;
     let commit = resolve_ref(cwd, git_ref)
         .ok_or_else(|| anyhow!("checkpoint `{git_ref}` is unavailable"))?;
     git_output(
@@ -384,7 +407,7 @@ pub fn restore_ref(cwd: &Path, git_ref: &str) -> anyhow::Result<()> {
 }
 
 pub fn has_ref(cwd: &Path, git_ref: &str) -> bool {
-    resolve_ref(cwd, git_ref).is_some()
+    validate_waku_ref(git_ref).is_ok() && resolve_ref(cwd, git_ref).is_some()
 }
 
 /// Every turn count that has a checkpoint ref for `session_id`, resolved with
@@ -397,6 +420,7 @@ pub fn session_turn_refs(cwd: &Path, session_id: Uuid) -> HashSet<usize> {
 }
 
 pub fn delete_ref(cwd: &Path, git_ref: &str) -> anyhow::Result<()> {
+    validate_waku_ref(git_ref)?;
     let output = Command::new("git")
         .args(["update-ref", "-d", git_ref])
         .current_dir(cwd)
@@ -575,8 +599,10 @@ fn session_checkpoint_ref_commits(cwd: &Path, session_id: Uuid) -> SessionCheckp
 /// batch form is one process, and it is atomic: either the whole set applies or
 /// none of it does. Deleting a ref that is already gone is not an error.
 ///
-/// Checkpoint ref names are generated, never user text, so they cannot contain
-/// the space or newline this line-oriented format delimits on.
+/// Checkpoint ref names are generated internally by this module, so they
+/// cannot contain the space or newline this line-oriented format delimits on.
+/// Callers that accept a ref name from outside the module go through
+/// `validate_waku_ref` first, which also forbids both characters.
 fn update_refs(cwd: &Path, commands: String) -> anyhow::Result<()> {
     if commands.is_empty() {
         return Ok(());
@@ -1101,6 +1127,68 @@ mod tests {
             turn.files
         );
         fs::remove_dir_all(directory).ok();
+    }
+
+    #[test]
+    fn waku_refs_are_validated() {
+        assert!(validate_waku_ref("refs/waku/session-1-turn-0").is_ok());
+        assert!(validate_waku_ref("refs/waku/revert-backup-1-2.3").is_ok());
+
+        assert!(validate_waku_ref("refs/heads/main").is_err(), "wrong prefix");
+        assert!(validate_waku_ref("refs/waku/").is_err(), "no name after the prefix");
+        assert!(validate_waku_ref("refs/waku").is_err(), "missing trailing slash");
+        assert!(
+            validate_waku_ref("refs/waku/../heads/main").is_err(),
+            "path traversal"
+        );
+        assert!(
+            validate_waku_ref("refs/waku/session-1/").is_err(),
+            "trailing slash"
+        );
+        assert!(
+            validate_waku_ref("refs/waku/session-1.").is_err(),
+            "trailing dot"
+        );
+        assert!(
+            validate_waku_ref("refs/waku/ session-1").is_err(),
+            "whitespace"
+        );
+        assert!(
+            validate_waku_ref("refs/waku/session\n1").is_err(),
+            "newline"
+        );
+        assert!(
+            validate_waku_ref("refs/waku/session-1;rm -rf").is_err(),
+            "shell metacharacters"
+        );
+    }
+
+    #[test]
+    fn capture_ref_rejects_foreign_ref_names() {
+        let directory = std::env::temp_dir().join(format!("waku-checkpoints-{}", Uuid::new_v4()));
+        fs::create_dir_all(&directory).unwrap();
+        git_ok(&directory, &["init", "--quiet"]);
+        fs::write(directory.join("tracked.txt"), "baseline\n").unwrap();
+        git_ok(&directory, &["add", "tracked.txt"]);
+        git_ok(
+            &directory,
+            &[
+                "-c",
+                "user.name=Waku Test",
+                "-c",
+                "user.email=waku@example.com",
+                "commit",
+                "--quiet",
+                "-m",
+                "baseline",
+            ],
+        );
+
+        assert!(capture_ref(&directory, "refs/heads/main").is_err());
+        assert!(restore_ref(&directory, "refs/heads/main").is_err());
+        assert!(delete_ref(&directory, "refs/heads/main").is_err());
+        assert!(!has_ref(&directory, "refs/heads/main"));
+        fs::remove_dir_all(&directory).ok();
     }
 
     #[test]
