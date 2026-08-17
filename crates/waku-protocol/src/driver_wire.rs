@@ -290,4 +290,14 @@ mod tests {
         assert_eq!(questions[0].id, "deployment");
         assert_eq!(questions[0].options[0].label, "Preview");
     }
+
+    #[test]
+    fn wire_event_round_trip_preserves_ordered_delta_payload() {
+        let wire = event_to_wire(DriverEvent::TextDelta("hello".into())).unwrap();
+        assert_eq!(wire.kind, "textDelta");
+        assert!(matches!(
+            event_from_wire(wire).unwrap(),
+            DriverEvent::TextDelta(text) if text == "hello"
+        ));
+    }
 }
