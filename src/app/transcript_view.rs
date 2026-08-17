@@ -65,10 +65,13 @@ pub(super) struct ConversationNavigationRail {
 }
 
 impl ConversationNavigationRail {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(cx: &mut Context<Self>) -> Self {
         let turn_list_state = ListState::new(0, ListAlignment::Top, px(48.0))
             .with_uniform_item_height(px(NAVIGATION_RAIL_TURN_HEIGHT));
-        turn_list_state.set_scroll_handler(|_, window, _| window.refresh());
+        let rail = cx.entity().downgrade();
+        turn_list_state.set_scroll_handler(move |_, _, cx| {
+            rail.update(cx, |_, cx| cx.notify()).ok();
+        });
         Self {
             waku: None,
             snapshot: ConversationNavigationRailSnapshot::default(),

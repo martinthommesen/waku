@@ -1924,7 +1924,7 @@ impl Waku {
                 .search_field()
                 .placeholder(tr!("diff.filter_files"))
         });
-        let navigation_rail = cx.new(|_| ConversationNavigationRail::new());
+        let navigation_rail = cx.new(|cx| ConversationNavigationRail::new(cx));
         let sidebar_pane = WakuPane::new(Waku::sidebar_pane_content, cx);
         let transcript_pane = WakuPane::new(Waku::transcript_pane_content, cx);
         let right_panel_pane = WakuPane::new(Waku::right_panel_pane_content, cx);
