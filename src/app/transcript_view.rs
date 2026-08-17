@@ -70,6 +70,9 @@ impl ConversationNavigationRail {
             .with_uniform_item_height(px(NAVIGATION_RAIL_TURN_HEIGHT));
         let rail = cx.entity().downgrade();
         turn_list_state.set_scroll_handler(move |_, _, cx| {
+            // The rail owns the only visuals that move with its scroll offset;
+            // a targeted notify rebuilds this island and lets cached siblings
+            // replay (docs/performance.md, "Who is allowed to cause a frame").
             rail.update(cx, |_, cx| cx.notify()).ok();
         });
         Self {
