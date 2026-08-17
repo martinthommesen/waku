@@ -166,7 +166,7 @@ OpenCode server itself, whose driver kills it explicitly on drop.
 | Mid-turn steering | yes | yes | yes | yes | yes | yes | yes | yes |
 | Model discovery | yes | yes | no (fixed) | no (modes) | yes | yes | yes | yes |
 | Computer Use | yes | yes | no | no | no | yes | yes | no |
-| Restricted to Build + Full access | no | yes | no | yes | no | no | no | — |
+| Restricted to Build + Full access | no | yes | no | yes | no | no | no | no |
 
 Every provider now holds a session across turns. That was not true when this
 document was first written: five of the seven spawned a process per prompt, and
