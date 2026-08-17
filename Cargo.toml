@@ -40,7 +40,6 @@ gpui_platform = { git = "https://github.com/egoist/zed", branch = "waku-webview"
 ] }
 parking_lot = "0.12"
 rquickjs = "0.12.2"
-serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 unicode-segmentation = "1.12"
 url = "2"
@@ -52,10 +51,9 @@ regex = "1"
 rust-i18n = "4"
 rust-umami = "0.1.1"
 smol = "2"
-ropey = "=2.0.0-beta.1"
 futures-lite = "2"
-futures = "0.3"
 nucleo-matcher = "0.3.1"
+# Only `src/analytics.rs` uses tokio, to host rust-umami's reqwest client.
 tokio = { version = "1", features = ["rt"] }
 
 [target.'cfg(unix)'.dependencies]
