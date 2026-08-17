@@ -32,8 +32,11 @@ dirs = "6.0"
 # rendering), which lets GPUI composite menus and tooltips above native child
 # views — the browser surface's WKWebView. Drop back to upstream once the PR
 # merges.
-gpui = { git = "https://github.com/egoist/zed", branch = "waku-webview", features = ["test-support"] }
-gpui_platform = { git = "https://github.com/egoist/zed", branch = "waku-webview", features = [
+# Cargo allows only one of `branch`, `tag`, or `rev` per git dependency, so we
+# pin by `rev` (the tip of waku-webview as of this pin) rather than `branch`,
+# so a bare `cargo update` cannot silently move us to a newer commit.
+gpui = { git = "https://github.com/egoist/zed", rev = "f9bad8941ea813982d6dfb10c0377ebf7716b3e7", features = ["test-support"] }
+gpui_platform = { git = "https://github.com/egoist/zed", rev = "f9bad8941ea813982d6dfb10c0377ebf7716b3e7", features = [
     "font-kit",
     "wayland",
     "x11",
