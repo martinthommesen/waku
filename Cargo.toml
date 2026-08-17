@@ -35,7 +35,7 @@ dirs = "6.0"
 # Cargo allows only one of `branch`, `tag`, or `rev` per git dependency, so we
 # pin by `rev` (the tip of waku-webview as of this pin) rather than `branch`,
 # so a bare `cargo update` cannot silently move us to a newer commit.
-gpui = { git = "https://github.com/egoist/zed", rev = "f9bad8941ea813982d6dfb10c0377ebf7716b3e7", features = ["test-support"] }
+gpui = { git = "https://github.com/egoist/zed", rev = "f9bad8941ea813982d6dfb10c0377ebf7716b3e7" }
 gpui_platform = { git = "https://github.com/egoist/zed", rev = "f9bad8941ea813982d6dfb10c0377ebf7716b3e7", features = [
     "font-kit",
     "wayland",
@@ -58,6 +58,9 @@ futures-lite = "2"
 nucleo-matcher = "0.3.1"
 # Only `src/analytics.rs` uses tokio, to host rust-umami's reqwest client.
 tokio = { version = "1", features = ["rt"] }
+
+[dev-dependencies]
+gpui = { git = "https://github.com/egoist/zed", rev = "f9bad8941ea813982d6dfb10c0377ebf7716b3e7", features = ["test-support"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
