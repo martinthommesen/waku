@@ -28,6 +28,15 @@ fn main() -> anyhow::Result<()> {
     std::io::stdout().flush()?;
 
     let shutdown = Arc::new(AtomicBool::new(false));
+    // A bare SIGTERM/SIGINT does not run Rust destructors, so without a
+    // handler the daemon would drop dead mid-session and leave every
+    // provider CLI it started behind. Setting the flag instead lets the
+    // accept loop exit normally and run `Backend::shutdown`, which drops
+    // every session and, in turn, terminates their provider processes.
+    for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
+        signal_hook::flag::register(signal, Arc::clone(&shutdown))
+            .context("could not register a Waku daemon shutdown signal handler")?;
+    }
     if let Some(parent_pid) = arguments.parent_pid {
         let monitor_shutdown = shutdown.clone();
         std::thread::Builder::new()
