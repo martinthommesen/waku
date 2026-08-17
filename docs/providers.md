@@ -9,27 +9,33 @@ polled off disk, and the one Waku generates itself — is in
 [titles.md](titles.md).
 
 Every provider is reached through the same driver abstraction in
-[src/driver/mod.rs](../src/driver/mod.rs). There are six transport
-implementations behind seven providers, and **every one of them holds a session
+[crates/waku-core/src/driver/mod.rs](../crates/waku-core/src/driver/mod.rs),
+which runs in `waku-daemon`. [src/driver/mod.rs](../src/driver/mod.rs) is the
+desktop's own file of the same name — it is not the abstraction itself, just
+the RPC proxy that lets the desktop start and control that daemon-owned
+driver without linking against its implementation. There are seven transport
+implementations behind eight providers, and **every one of them holds a session
 that spans the whole conversation**:
 
 | Transport | File | Providers |
 | --- | --- | --- |
-| Codex app-server (JSON-RPC over stdio) | [src/driver/codex.rs](../src/driver/codex.rs) | Codex CLI |
-| Agent Client Protocol (JSON-RPC over stdio) | [src/driver/acp.rs](../src/driver/acp.rs) | Cursor CLI, Grok Build |
-| OpenCode server (HTTP + server-sent events) | [src/driver/opencode.rs](../src/driver/opencode.rs) | OpenCode |
-| Pi RPC mode (NDJSON request/response over stdio) | [src/driver/pi.rs](../src/driver/pi.rs) | Pi |
-| Claude streaming-input session (NDJSON over stdio) | [src/driver/claude.rs](../src/driver/claude.rs) | Claude Code |
-| Amp streaming-JSON session (NDJSON over stdio) | [src/driver/amp.rs](../src/driver/amp.rs) | Amp |
+| Codex app-server (JSON-RPC over stdio) | [crates/waku-core/src/driver/codex.rs](../crates/waku-core/src/driver/codex.rs) | Codex CLI |
+| Agent Client Protocol (JSON-RPC over stdio) | [crates/waku-core/src/driver/acp.rs](../crates/waku-core/src/driver/acp.rs) | Cursor CLI, Grok Build |
+| OpenCode server (HTTP + server-sent events) | [crates/waku-core/src/driver/opencode.rs](../crates/waku-core/src/driver/opencode.rs) | OpenCode |
+| Pi RPC mode (NDJSON request/response over stdio) | [crates/waku-core/src/driver/pi.rs](../crates/waku-core/src/driver/pi.rs) | Pi |
+| Claude streaming-input session (NDJSON over stdio) | [crates/waku-core/src/driver/claude.rs](../crates/waku-core/src/driver/claude.rs) | Claude Code |
+| Amp streaming-JSON session (NDJSON over stdio) | [crates/waku-core/src/driver/amp.rs](../crates/waku-core/src/driver/amp.rs) | Amp |
+| DeepSeek Harness client (`dsh web`, HTTP + downlink event streams) | [crates/waku-core/src/driver/deepseek.rs](../crates/waku-core/src/driver/deepseek.rs) | DeepSeek Harness |
 
 ## The driver contract
 
-`driver::start(provider, DriverStartOptions, Sender<DriverEvent>)` returns a
+`start_local(provider, DriverStartOptions, DriverEventSender)` returns a
 `DriverHandle`. The UI never touches a process: it sends commands through
 `DriverControl` and receives `DriverEvent`s on a `crossbeam` channel that the
 frame loop drains.
 
-Inputs ([src/driver/mod.rs:67](../src/driver/mod.rs#L79)):
+Inputs (`DriverStartOptions`,
+[crates/waku-core/src/driver/mod.rs](../crates/waku-core/src/driver/mod.rs)):
 
 ```rust
 pub struct DriverStartOptions {
@@ -39,7 +45,8 @@ pub struct DriverStartOptions {
 }
 ```
 
-Outputs ([src/model.rs:973](../src/model.rs#L973)): `Connected`,
+Outputs (`DriverEvent`,
+[crates/waku-protocol/src/model.rs](../crates/waku-protocol/src/model.rs)): `Connected`,
 `AvailableCommands`, `TurnStarted`, `TextDelta`, `ReasoningDelta`, `Activity`,
 `RichActivity`, `Permission`, `ComputerUseUpdated`, `SteerAccepted`,
 `SteerRejected`, `TurnFinished`, `Error`, `ProcessExited`.
@@ -53,15 +60,17 @@ composer and starts a fresh turn once the current one settles.
 
 Every driver normalizes its tool events into one `ActivityItem`
 (`Reasoning | Command | FileChange | Search | Plan | Tool`) via
-[src/driver/activity.rs](../src/driver/activity.rs), so the transcript renders
+[crates/waku-core/src/driver/activity.rs](../crates/waku-core/src/driver/activity.rs), so the transcript renders
 provider-agnostic rows. Tool titles prefer a `title` argument when the tool
 supplies one, then fall back to the command, the query, or a de-camel-cased
 tool name.
 
 ### Runtime lifetime in the app
 
-A driver is created lazily per session by `ensure_driver`
-([src/app/runtime.rs:927](../src/app/runtime.rs#L1016)) and stored in
+A driver is created lazily per session — the first time a prompt is submitted
+or an existing runtime is reattached, in `submit_submission_for_session` and
+`start_runtime_attachment`
+([src/app/runtime.rs](../src/app/runtime.rs)) — and stored in
 `Waku::runtimes` keyed by session id. Runtimes are per session, not per view:
 switching sessions in the sidebar does not touch them, so a background session
 keeps streaming into its transcript.
@@ -70,11 +79,11 @@ A runtime — and with it that session's provider process — is dropped when:
 
 | Trigger | Where |
 | --- | --- |
-| The user stops a turn, **Codex and Amp only** | [src/app/sessions.rs:3](../src/app/sessions.rs#L3) |
+| The user stops a turn, **Codex and Amp only** | `retain_runtime_after_cancel`, [src/app/sessions.rs](../src/app/sessions.rs) |
 | The provider changes, or an option changes that the transport cannot apply in session | `apply_session_options`, [src/app/runtime.rs](../src/app/runtime.rs) |
-| The session is deleted | [src/app/sessions.rs:178](../src/app/sessions.rs#L178) |
-| A rewind or branch leaves the driver on a stale native session | [src/app/runtime.rs](../src/app/runtime.rs) |
-| The driver reports `ProcessExited` (the handler returns `false`, so the runtime is not reinserted) | [src/app/streaming.rs:352](../src/app/streaming.rs#L352) |
+| The session is deleted | `remove_session`, [src/app/sessions.rs](../src/app/sessions.rs) |
+| A rewind or branch leaves the driver on a stale native session | `finish_response_fork`, [src/app/runtime.rs](../src/app/runtime.rs) |
+| The driver reports `ProcessExited` (the handler returns `false`, so the runtime is not reinserted) | `handle_driver_event`, [src/app/streaming.rs](../src/app/streaming.rs) |
 | Nobody has touched the session for 30 minutes | `reap_idle_sessions`, [src/app/runtime.rs](../src/app/runtime.rs) |
 | Waku quits | `cx.quit()` |
 
@@ -135,7 +144,7 @@ of the app — which Pi did until it was given one.
 
 **The OpenCode server is different**: it has no stdin to close, so
 `OpenCodeServer`'s own `Drop` kills and waits on it
-([src/opencode_session.rs](../src/opencode_session.rs)). Waku quitting without
+([crates/waku-core/src/opencode_session.rs](../crates/waku-core/src/opencode_session.rs)). Waku quitting without
 running `Drop` is the one case that could orphan it, where the stdio drivers get
 cleanup from the OS for free.
 
@@ -145,19 +154,19 @@ OpenCode server itself, whose driver kills it explicitly on drop.
 
 ## At a glance
 
-| | Codex CLI | Pi | Claude Code | Amp | Cursor CLI | OpenCode | Grok Build |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Binary | `codex` | `pi` | `claude` | `amp` | `cursor-agent` | `opencode` | `grok` |
-| Wire protocol | JSON-RPC over stdio | NDJSON RPC over stdio | stream-json over stdio | stream-json over stdio | ACP over stdio | HTTP + SSE | ACP over stdio |
-| Process spans the whole session | yes | yes | yes | yes | yes | yes | yes |
-| Process spawned per turn | no | no | no | no | no | no | no |
-| Bidirectional | yes | yes | yes | yes | yes | yes | yes |
-| Reasoning stream | yes | yes | yes | yes | yes | yes | yes |
-| Interactive approvals | yes | no | yes | no | yes | yes | yes |
-| Mid-turn steering | yes | yes | yes | yes | yes | yes | yes |
-| Model discovery | yes | yes | no (fixed) | no (modes) | yes | yes | yes |
-| Computer Use | yes | yes | no | no | no | yes | yes |
-| Restricted to Build + Full access | no | yes | no | yes | no | no | no |
+| | Codex CLI | Pi | Claude Code | Amp | Cursor CLI | OpenCode | Grok Build | DeepSeek Harness |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Binary | `codex` | `pi` | `claude` | `amp` | `cursor-agent` | `opencode` | `grok` | `dsh` |
+| Wire protocol | JSON-RPC over stdio | NDJSON RPC over stdio | stream-json over stdio | stream-json over stdio | ACP over stdio | HTTP + SSE | ACP over stdio | HTTP + downlink streams |
+| Process spans the whole session | yes | yes | yes | yes | yes | yes | yes | yes |
+| Process spawned per turn | no | no | no | no | no | no | no | no |
+| Bidirectional | yes | yes | yes | yes | yes | yes | yes | yes |
+| Reasoning stream | yes | yes | yes | yes | yes | yes | yes | yes |
+| Interactive approvals | yes | no | yes | no | yes | yes | yes | yes |
+| Mid-turn steering | yes | yes | yes | yes | yes | yes | yes | yes |
+| Model discovery | yes | yes | no (fixed) | no (modes) | yes | yes | yes | yes |
+| Computer Use | yes | yes | no | no | no | yes | yes | no |
+| Restricted to Build + Full access | no | yes | no | yes | no | no | no | no |
 
 Every provider now holds a session across turns. That was not true when this
 document was first written: five of the seven spawned a process per prompt, and
@@ -170,7 +179,7 @@ turned out to already serve a session protocol; nobody had looked.
 ## Codex CLI
 
 **Launch** — `codex app-server --stdio`
-([src/driver/codex.rs:164](../src/driver/codex.rs#L164)), plus `-c` config
+([crates/waku-core/src/driver/codex.rs](../crates/waku-core/src/driver/codex.rs)), plus `-c` config
 overrides when Computer Use is on.
 
 **Protocol** — newline-delimited JSON-RPC over stdio, genuinely bidirectional:
@@ -201,7 +210,8 @@ retained because `thread/fork` needs a `lastTurnId`.
 `approvalPolicy`, `approvalsReviewer`, `sandboxPolicy`, and optional `model`,
 `effort`, `serviceTier`.
 
-**Inbound stream** ([src/driver/codex.rs:851](../src/driver/codex.rs#L882)):
+**Inbound stream** (`handle_codex_message`,
+[crates/waku-core/src/driver/codex.rs](../crates/waku-core/src/driver/codex.rs)):
 
 | Method | Becomes |
 | --- | --- |
@@ -218,7 +228,8 @@ request becomes a `Permission` event with `accept` / `acceptForSession` /
 `decline`, and the answer is written back as a JSON-RPC *response*:
 `{"id": <original>, "result": {"decision": …}}`. Because JSON-RPC ids are
 per-peer, the reader only treats method-less messages as replies to Waku's own
-requests ([src/driver/codex.rs:779](../src/driver/codex.rs#L809)).
+requests (`handle_codex_message`,
+[crates/waku-core/src/driver/codex.rs](../crates/waku-core/src/driver/codex.rs)).
 
 **Cancel** — `turn/interrupt {threadId, turnId}`.
 
@@ -236,10 +247,12 @@ response channel and blocks up to 15 s.
 (`U+E200`/`U+E201`/`U+E202`). They are buffered across deltas and rewritten into
 markdown links against the `webSearch` results captured earlier in the turn;
 unknown markers are dropped. Private control markers never reach the transcript
-([src/driver/codex.rs:660](../src/driver/codex.rs#L690)).
+(`rewrite_citation_delta`,
+[crates/waku-core/src/driver/codex.rs](../crates/waku-core/src/driver/codex.rs)).
 
 **Models** — a throwaway app-server, `model/list` paged via `nextCursor`, up to
-32 pages ([src/model_catalog.rs:367](../src/model_catalog.rs#L367)).
+32 pages (`discover_codex_models`,
+[crates/waku-core/src/model_catalog.rs](../crates/waku-core/src/model_catalog.rs)).
 
 **Computer Use** — `-c mcp_servers.waku_js_repl.command=…` registers Waku's
 QuickJS MCP server, with several `-c` flags disabling Codex's own external
@@ -251,13 +264,14 @@ visible.
 ## Pi
 
 **Launch** — `pi --mode rpc --approve` with `PI_SKIP_VERSION_CHECK=1`
-([src/driver/pi.rs:107](../src/driver/pi.rs#L107)).
+([crates/waku-core/src/driver/pi.rs](../crates/waku-core/src/driver/pi.rs)).
 
 **Protocol** — NDJSON over stdio, but request/response rather than JSON-RPC:
 Waku stamps each request with a string id (`waku-<n>`) and Pi answers with
 `{"type": "response", "id", "success", "data"}`. Everything else on the stream
 is an unsolicited event. Requests are issued synchronously by the writer thread
-with a 10 s timeout ([src/driver/pi.rs:415](../src/driver/pi.rs#L507)); events
+with a 10 s timeout (`send_request`,
+[crates/waku-core/src/driver/pi.rs](../crates/waku-core/src/driver/pi.rs)); events
 keep flowing on the reader thread meanwhile.
 
 **Lifetime** — long-lived, and unlike Codex it survives Stop: cancelling sends
@@ -271,7 +285,8 @@ both go into the cursor, and resume needs the **file path**, not just the id.
 
 **Per turn** — `{"type": "prompt", "message": …}`.
 
-**Inbound stream** ([src/driver/pi.rs:579](../src/driver/pi.rs#L671)):
+**Inbound stream** (`handle_pi_message`,
+[crates/waku-core/src/driver/pi.rs](../crates/waku-core/src/driver/pi.rs)):
 
 | Event | Becomes |
 | --- | --- |
@@ -292,11 +307,13 @@ resolves to `SteerAccepted` or `SteerRejected`.
 
 **Rewind and branch** — both go through `get_fork_messages` → `fork {entryId}`
 (or `clone` when nothing is removed) → `get_state`
-([src/driver/pi.rs:482](../src/driver/pi.rs#L574)). Rewind adopts the fork as the
-session's new cursor. Branch additionally `switch_session`es back to the source
-file and verifies it landed on the right session; if that restore fails the
-runtime is dropped, because the RPC process may still be sitting on the fork
-([src/app/runtime.rs:419](../src/app/runtime.rs#L419)).
+(`fork_pi_session`,
+[crates/waku-core/src/driver/pi.rs](../crates/waku-core/src/driver/pi.rs)).
+Rewind adopts the fork as the session's new cursor. Branch additionally
+`switch_session`es back to the source file and verifies it landed on the right
+session; if that restore fails the runtime is dropped, because the RPC process
+may still be sitting on the fork (`finish_response_fork`,
+[src/app/runtime.rs](../src/app/runtime.rs)).
 
 **Models** — a separate `pi --mode rpc --no-session --no-skills
 --no-prompt-templates --no-context-files` process answering
@@ -315,7 +332,7 @@ with the REPL and helper paths passed through the environment.
 **Launch** — `claude -p --input-format stream-json --output-format stream-json
 --verbose --include-partial-messages --replay-user-messages
 --permission-prompt-tool stdio --permission-mode <mode>`
-([src/driver/claude.rs](../src/driver/claude.rs)), plus `--model`, `--effort`,
+([crates/waku-core/src/driver/claude.rs](../crates/waku-core/src/driver/claude.rs)), plus `--model`, `--effort`,
 and `--session-id` or `--resume`.
 
 This is the transport the Claude Agent SDK's `query()` drives; the SDK is a
@@ -367,7 +384,7 @@ restarts.
 **Native checkpoints** — after each turn Waku reads Claude's own transcript at
 `$CLAUDE_CONFIG_DIR/projects/**/<session>.jsonl`, walks the `parentUuid` chain to
 find the active branch, and records the latest message uuid as the turn's
-`provider_resume_at` ([src/claude_session.rs](../src/claude_session.rs)). That
+`provider_resume_at` ([crates/waku-core/src/claude_session.rs](../crates/waku-core/src/claude_session.rs)). That
 per-turn checkpoint is what makes rewind and branch possible. Because Claude
 accepts a caller-chosen `--session-id`, the cursor exists before the first turn
 does.
@@ -381,7 +398,8 @@ rewrite — unverified, and the reason it is still hand-rolled is that the flag 
 found after the fork code was written.
 
 **Models** — no discovery command; the catalog is a curated fixed list
-([src/model_catalog.rs:52](../src/model_catalog.rs#L52)).
+(`fallback_models`,
+[crates/waku-core/src/model_catalog.rs](../crates/waku-core/src/model_catalog.rs)).
 
 ---
 
@@ -389,7 +407,7 @@ found after the fork code was written.
 
 **Launch** — `amp [threads continue <thread-id>] --execute --stream-json-thinking
 --stream-json-input --dangerously-allow-all [--mode M] [--effort E] [--fast]`
-([src/driver/amp.rs](../src/driver/amp.rs)). `--stream-json-thinking` implies
+([crates/waku-core/src/driver/amp.rs](../crates/waku-core/src/driver/amp.rs)). `--stream-json-thinking` implies
 `--stream-json`, which `--stream-json-input` requires.
 
 **Protocol** — newline-delimited JSON in both directions. Amp keeps the process
@@ -434,14 +452,14 @@ prefix, `amp threads new` creates an empty thread, and the retained history is
 replayed as a length-delimited envelope prepended to the first prompt
 (`WAKU_AMP_BRANCH_CONTEXT_V1`). Forking a thread that was itself seeded this way
 re-expands the nested envelope first, so branches of branches stay flat
-([src/amp_session.rs](../src/amp_session.rs)).
+([crates/waku-core/src/amp_session.rs](../crates/waku-core/src/amp_session.rs)).
 
 ---
 
 ## OpenCode server
 
 **Launch** — `opencode serve --hostname 127.0.0.1 --port <ephemeral>`
-([src/driver/opencode.rs](../src/driver/opencode.rs)). Waku already started this
+([crates/waku-core/src/driver/opencode.rs](../crates/waku-core/src/driver/opencode.rs)). Waku already started this
 server to fork a session; it now runs the conversation too.
 
 **Protocol** — OpenCode's own HTTP API plus a server-sent event stream. Routes
@@ -496,7 +514,7 @@ agent stops asking about the same permission.
 **Rewind and branch** — `POST /session/{id}/fork`. A live task sends the fork
 through its resident server, avoiding a second OpenCode process contending for
 the same local resources; a cold task may use a short-lived server
-([src/opencode_session.rs](../src/opencode_session.rs)).
+([crates/waku-core/src/opencode_session.rs](../crates/waku-core/src/opencode_session.rs)).
 
 **Computer Use** — `OPENCODE_CONFIG_CONTENT` and the helper paths are handed to
 the resident server through its environment, exactly as the one-shot invocation
@@ -507,7 +525,7 @@ received them.
 ## Agent Client Protocol
 
 **Launch** — `cursor-agent acp`, `grok agent stdio`
-([src/driver/acp.rs](../src/driver/acp.rs)).
+([crates/waku-core/src/driver/acp.rs](../crates/waku-core/src/driver/acp.rs)).
 
 **Protocol** — newline-delimited JSON-RPC over stdio, bidirectional. One agent
 process serves the whole conversation, streams `session/update` notifications,
@@ -572,7 +590,7 @@ general-purpose ACP library, not to the app that drives these two providers.
 
 The one case that would justify serving `fs/read_text_file` is Waku's own file
 editor, which tracks unsaved buffers
-([src/app/right_panel.rs:1004](../src/app/right_panel.rs#L1004)): an agent
+([src/app/right_panel.rs](../src/app/right_panel.rs)): an agent
 reading a file the user has unsaved edits in currently gets the disk copy. That
 is a deliberate future call, not an oversight.
 
@@ -595,8 +613,8 @@ response settles the merged turn. Both policies probed against the real
 agents; T3 Code runs the same last-prompt-settles bookkeeping for both.
 
 **Rewind and branch** — unchanged and still out of band: Grok forks through its
-own ACP server plus on-disk truncation ([src/grok_session.rs](../src/grok_session.rs)),
-Cursor re-seeds a fresh session ([src/cursor_session.rs](../src/cursor_session.rs)).
+own ACP server plus on-disk truncation ([crates/waku-core/src/grok_session.rs](../crates/waku-core/src/grok_session.rs)),
+Cursor re-seeds a fresh session ([crates/waku-core/src/cursor_session.rs](../crates/waku-core/src/cursor_session.rs)).
 
 **Computer Use** — Grok's isolated `GROK_HOME` and `--rules` setup is transport
 independent, so the ACP session reuses the same builder the headless driver used.
@@ -633,7 +651,7 @@ because it runs with `--approve`.
 
 ## Resume cursors
 
-`ProviderResumeCursor` ([src/model.rs:121](../src/model.rs#L121)) is persisted
+`ProviderResumeCursor` ([crates/waku-protocol/src/model.rs](../crates/waku-protocol/src/model.rs)) is persisted
 with the session and is what makes a Waku task outlive its process:
 
 | Provider | Cursor fields | Why |
@@ -703,17 +721,29 @@ transcript uuid as a rewind checkpoint.
 
 ## Adding a provider
 
-1. Add the variant to `ProviderKind` ([src/model.rs:9](../src/model.rs#L9)) with
-   `id`, `display_name`, `short_name`, `command`, and the capability predicates.
+1. Add the variant to `ProviderKind`
+   ([crates/waku-protocol/src/model.rs](../crates/waku-protocol/src/model.rs))
+   with `id`, `display_name`, `short_name`, `command`, and the capability
+   predicates.
 2. Add a `ProviderResumeCursor` variant carrying whatever resume actually needs
    (an id is often not enough — see Pi's session file and Claude's message uuid).
-3. Pick a transport, and look hard before settling for the one-shot path. Ask
-   whether the CLI speaks ACP (`acp` / `agent stdio` — [src/driver/acp.rs](../src/driver/acp.rs)
-   already covers it), serves an HTTP API, or has a persistent RPC mode; three
-   providers were on `headless.rs` until someone checked. Only when none of those
-   exist should you add a `parse_*` arm and an args builder to `headless.rs`.
-   Route the choice in `driver::start`.
-4. Map its stream onto `DriverEvent` and its tools onto `ActivityKind`. **Read
+3. Pick a transport, and look hard before settling for something narrower. Ask
+   whether the CLI speaks ACP (`acp` / `agent stdio` —
+   [crates/waku-core/src/driver/acp.rs](../crates/waku-core/src/driver/acp.rs)
+   already covers it), serves an HTTP API (OpenCode, DeepSeek Harness), or has
+   a persistent RPC mode over stdio (Codex, Pi, Claude, Amp). Every current
+   provider ended up on one of these long-lived shapes — there is no one-shot
+   fallback left to drop a new one into. Route the choice in `start_local`
+   ([crates/waku-core/src/driver/mod.rs](../crates/waku-core/src/driver/mod.rs)).
+4. If the transport owns its child process directly rather than going through
+   an SDK, spawn it with
+   [`command_env::spawn_in_own_group`](../crates/waku-core/src/command_env.rs)
+   so a later kill reaches the whole process group, hold the `Child` as a
+   `SharedChild`, and call
+   [`terminate_child`](../crates/waku-core/src/driver/support.rs) from `Drop`
+   so a child that outlives its stdin-close signal is still killed and reaped
+   rather than leaked, the way every stdio driver here already does.
+5. Map its stream onto `DriverEvent` and its tools onto `ActivityKind`. **Read
    the payloads off a live provider** — every driver here was written from a
    probe transcript or an OpenAPI document, and the two bugs that reached code
    anyway (a dead event subscription, a discarded permission reason) were both
@@ -725,16 +755,17 @@ transcript uuid as a rewind checkpoint.
    turn; Amp queues it unless it carries the CLI's `"steer": true` attribute;
    ACP agents take a second `session/prompt` whose superseded predecessor must
    not settle the turn — and only a live probe tells these apart.
-5. Map the access and interaction modes. If the transport can ask the user, route
+6. Map the access and interaction modes. If the transport can ask the user, route
    Supervised to a real `Permission` event; if it cannot, pick the safe
    degradation and say so in a comment at the call site.
-6. Add an `#[ignore]`d integration test that drives the real provider through the
+7. Add an `#[ignore]`d integration test that drives the real provider through the
    driver, as `acp.rs` and `opencode.rs` do. It is the only check that catches a
    transport wired to nothing.
-7. Implement rewind and branch, or emulate them the way Claude, Amp, Cursor,
+8. Implement rewind and branch, or emulate them the way Claude, Amp, Cursor,
    OpenCode and Grok do. Native truncation is preferable; seeding a fresh session
    with retained history is the fallback.
-8. Wire model discovery in `model_catalog.rs`, plus a fallback list for when the
-   binary is missing or the command fails. Some transports hand you a better
-   catalog than the CLI's `models` output — Cursor and Grok both return one in
-   their ACP handshake.
+9. Wire model discovery in `model_catalog.rs`
+   ([crates/waku-core/src/model_catalog.rs](../crates/waku-core/src/model_catalog.rs)),
+   plus a fallback list for when the binary is missing or the command fails.
+   Some transports hand you a better catalog than the CLI's `models` output —
+   Cursor and Grok both return one in their ACP handshake.

@@ -14,6 +14,7 @@ Waku works with:
 - Claude Code
 - Codex CLI
 - Cursor CLI
+- DeepSeek Harness
 - Grok Build
 - OpenCode
 - Pi
@@ -62,10 +63,13 @@ expose the child daemon on a fixed port, configure exact browser origins, and
 copy its stable authentication token. It remains loopback-only by default.
 
 When connected to a daemon managed outside the desktop process, Waku never
-interprets daemon paths on the client machine. The local folder picker and PTY
-are therefore unavailable until the protocol gains daemon-host picker and
-terminal-stream endpoints; files, diffs, Git, skills, usage, task state, and
-attachments already use daemon RPC.
+interprets daemon paths on the client machine. The protocol already exposes a
+`BrowseDirectory` workspace operation and `OpenTerminal` / `WriteTerminal` /
+`ResizeTerminal` / `CloseTerminal` commands for browsing and driving a PTY on
+the daemon host over RPC, and the browser client already uses them; the
+desktop app's native folder picker and terminal still assume a local
+filesystem and have not been wired to interpret daemon paths. Files, diffs,
+Git, skills, usage, task state, and attachments already use daemon RPC.
 
 Release apps bundle and sign `waku-daemon`. Development keeps the daemon at
 `target/debug/waku-debug-daemon`, allowing provider-only edits to rebuild and

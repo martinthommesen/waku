@@ -46,6 +46,7 @@ enum CommandMessage {
 pub struct AmpDriver {
     commands: Sender<CommandMessage>,
     active_pid: Arc<AtomicU32>,
+    child: super::support::SharedChild,
 }
 
 /// Amp's thread arguments. The prompt never rides here — it goes in on stdin.
@@ -130,7 +131,7 @@ impl AmpDriver {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = crate::command_env::spawn(command)
+        let mut child = crate::command_env::spawn_in_own_group(command)
             .context("failed to start `amp` in streaming-input mode")?;
         let stdin = child
             .stdin
@@ -145,6 +146,7 @@ impl AmpDriver {
             .take()
             .ok_or_else(|| anyhow!("Amp stderr unavailable"))?;
         let active_pid = Arc::new(AtomicU32::new(child.id()));
+        let child = Arc::new(Mutex::new(child));
 
         if let Some(thread_id) = thread_id.clone() {
             let _ = events.send(DriverEvent::Connected {
@@ -320,10 +322,21 @@ impl AmpDriver {
             })?;
 
         let process_pid = active_pid.clone();
+        let process_child = Arc::clone(&child);
         thread::Builder::new()
             .name("waku-amp-process".into())
             .spawn(move || {
-                let status = child.wait();
+                // Poll instead of blocking on `wait()` so the lock is never
+                // held while the child is merely still running, which would
+                // starve `cancel`'s and `Drop`'s signal delivery of the lock
+                // they need to reach this same process.
+                let status = loop {
+                    match process_child.lock().try_wait() {
+                        Ok(Some(status)) => break Ok(status),
+                        Ok(None) => thread::sleep(Duration::from_millis(50)),
+                        Err(error) => break Err(error),
+                    }
+                };
                 process_pid.store(0, Ordering::Relaxed);
                 let _ = reader_thread.join();
                 let _ = stderr_thread.join();
@@ -343,6 +356,7 @@ impl AmpDriver {
         Ok(Self {
             commands,
             active_pid,
+            child,
         })
     }
 }
@@ -365,13 +379,20 @@ impl DriverControl for AmpDriver {
         // process. The thread survives on Amp's side, and the next prompt
         // resumes it with `threads continue` — which is why Amp's runtime is
         // not retained after a cancel.
-        let pid = self.active_pid.load(Ordering::Relaxed);
-        if pid != 0 {
+        //
+        // Holding the child lock across the liveness check and the signal
+        // closes a PID-reuse race a bare atomic read left open: without the
+        // lock, the process thread could reap the exited child — freeing its
+        // PID for the OS to hand to an unrelated process — between reading
+        // `active_pid` and sending the signal.
+        let mut child = self.child.lock();
+        if child.try_wait().is_ok_and(|status| status.is_none()) {
+            let pid = self.active_pid.load(Ordering::Relaxed);
             #[cfg(unix)]
-            {
-                let _ = Command::new("/bin/kill")
-                    .args(["-INT", &pid.to_string()])
-                    .status();
+            if pid != 0 {
+                unsafe {
+                    let _ = libc::kill(pid as libc::pid_t, libc::SIGINT);
+                }
             }
         }
     }
@@ -393,6 +414,7 @@ impl DriverControl for AmpDriver {
 impl Drop for AmpDriver {
     fn drop(&mut self) {
         let _ = self.commands.send(CommandMessage::Shutdown);
+        super::support::terminate_child(&mut self.child.lock(), super::support::CHILD_TERMINATE_GRACE);
     }
 }
 

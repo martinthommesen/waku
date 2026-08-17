@@ -32,15 +32,17 @@ dirs = "6.0"
 # rendering), which lets GPUI composite menus and tooltips above native child
 # views — the browser surface's WKWebView. Drop back to upstream once the PR
 # merges.
-gpui = { git = "https://github.com/egoist/zed", branch = "waku-webview", features = ["test-support"] }
-gpui_platform = { git = "https://github.com/egoist/zed", branch = "waku-webview", features = [
+# Cargo allows only one of `branch`, `tag`, or `rev` per git dependency, so we
+# pin by `rev` (the tip of waku-webview as of this pin) rather than `branch`,
+# so a bare `cargo update` cannot silently move us to a newer commit.
+gpui = { git = "https://github.com/egoist/zed", rev = "f9bad8941ea813982d6dfb10c0377ebf7716b3e7" }
+gpui_platform = { git = "https://github.com/egoist/zed", rev = "f9bad8941ea813982d6dfb10c0377ebf7716b3e7", features = [
     "font-kit",
     "wayland",
     "x11",
 ] }
 parking_lot = "0.12"
 rquickjs = "0.12.2"
-serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 unicode-segmentation = "1.12"
 url = "2"
@@ -52,11 +54,13 @@ regex = "1"
 rust-i18n = "4"
 rust-umami = "0.1.1"
 smol = "2"
-ropey = "=2.0.0-beta.1"
 futures-lite = "2"
-futures = "0.3"
 nucleo-matcher = "0.3.1"
+# Only `src/analytics.rs` uses tokio, to host rust-umami's reqwest client.
 tokio = { version = "1", features = ["rt"] }
+
+[dev-dependencies]
+gpui = { git = "https://github.com/egoist/zed", rev = "f9bad8941ea813982d6dfb10c0377ebf7716b3e7", features = ["test-support"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

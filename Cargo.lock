@@ -220,7 +220,7 @@ dependencies = [
  "regex-automata",
  "rustix 1.1.4",
  "rustix-openpty",
- "signal-hook",
+ "signal-hook 0.4.4",
  "unicode-width",
  "vte",
  "windows-sys 0.59.0",
@@ -1206,7 +1206,7 @@ dependencies = [
 [[package]]
 name = "collections"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "gpui_util",
  "indexmap 2.14.0",
@@ -1725,7 +1725,7 @@ dependencies = [
 [[package]]
 name = "derive_refineable"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2762,7 +2762,7 @@ dependencies = [
 [[package]]
 name = "gpui"
 version = "0.2.2"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -2848,7 +2848,7 @@ dependencies = [
 [[package]]
 name = "gpui_linux"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "accesskit",
  "accesskit_unix",
@@ -2900,7 +2900,7 @@ dependencies = [
 [[package]]
 name = "gpui_macos"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -2949,7 +2949,7 @@ dependencies = [
 [[package]]
 name = "gpui_macros"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -2960,7 +2960,7 @@ dependencies = [
 [[package]]
 name = "gpui_platform"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "console_error_panic_hook",
  "gpui",
@@ -2973,7 +2973,7 @@ dependencies = [
 [[package]]
 name = "gpui_shared_string"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "schemars 1.2.2",
  "serde",
@@ -2983,7 +2983,7 @@ dependencies = [
 [[package]]
 name = "gpui_util"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "anyhow",
  "log",
@@ -2993,7 +2993,7 @@ dependencies = [
 [[package]]
 name = "gpui_web"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -3016,7 +3016,7 @@ dependencies = [
 [[package]]
 name = "gpui_wgpu"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -3046,7 +3046,7 @@ dependencies = [
 [[package]]
 name = "gpui_windows"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "accesskit",
  "accesskit_windows",
@@ -3338,7 +3338,7 @@ dependencies = [
 [[package]]
 name = "http_client"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -4225,7 +4225,7 @@ dependencies = [
 [[package]]
 name = "media"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "anyhow",
  "bindgen",
@@ -5098,7 +5098,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 [[package]]
 name = "perf"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "collections",
  "serde",
@@ -5927,7 +5927,7 @@ dependencies = [
 [[package]]
 name = "refineable"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "derive_refineable",
 ]
@@ -6051,15 +6051,6 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "ropey"
-version = "2.0.0-beta.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4045a00dc327d084a2bbf126976e14125b54f23bd30511d45b842eba76c52d74"
-dependencies = [
- "str_indices",
 ]
 
 [[package]]
@@ -6383,7 +6374,7 @@ dependencies = [
 [[package]]
 name = "scheduler"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "async-task",
  "backtrace",
@@ -6765,6 +6756,16 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "signal-hook"
+version = "0.3.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d881a16cf4426aa584979d30bd82cb33429027e42122b169753d6ef1085ed6e2"
+dependencies = [
+ "libc",
+ "signal-hook-registry",
+]
+
+[[package]]
+name = "signal-hook"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2a0c28ca5908dbdbcd52e6fdaa00358ab88637f8ab33e1f188dd510eb44b53d"
@@ -7016,12 +7017,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
-name = "str_indices"
-version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d08889ec5408683408db66ad89e0e1f93dff55c73a4ccc71c427d5b277ee47e6"
-
-[[package]]
 name = "strict-num"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7111,7 +7106,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "sum_tree"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "heapless",
  "log",
@@ -8040,7 +8035,7 @@ checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 [[package]]
 name = "util_macros"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "perf",
  "quote",
@@ -8190,7 +8185,6 @@ dependencies = [
  "chrono",
  "crossbeam-channel",
  "dirs",
- "futures",
  "futures-lite",
  "gpui",
  "gpui_platform",
@@ -8208,11 +8202,9 @@ dependencies = [
  "pulldown-cmark",
  "raw-window-handle",
  "regex",
- "ropey",
  "rquickjs",
  "rust-i18n",
  "rust-umami",
- "serde",
  "serde_json",
  "smol",
  "tokio",
@@ -8280,6 +8272,7 @@ dependencies = [
  "anyhow",
  "libc",
  "serde_json",
+ "signal-hook 0.3.18",
  "waku-core",
  "waku-protocol",
 ]
@@ -9860,7 +9853,7 @@ dependencies = [
 [[package]]
 name = "zlog"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "anyhow",
  "chrono",
@@ -9877,7 +9870,7 @@ checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 [[package]]
 name = "ztracing"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 dependencies = [
  "tracing",
  "tracing-subscriber",
@@ -9888,7 +9881,7 @@ dependencies = [
 [[package]]
 name = "ztracing_macro"
 version = "0.1.0"
-source = "git+https://github.com/egoist/zed?branch=waku-webview#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
+source = "git+https://github.com/egoist/zed?rev=f9bad8941ea813982d6dfb10c0377ebf7716b3e7#f9bad8941ea813982d6dfb10c0377ebf7716b3e7"
 
 [[package]]
 name = "zune-core"

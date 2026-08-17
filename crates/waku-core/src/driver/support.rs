@@ -3,16 +3,59 @@
 //! classification.
 
 use std::fs;
+use std::process::Child;
+use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use std::os::unix::fs::{PermissionsExt as _, symlink};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, anyhow};
+use parking_lot::Mutex;
 use serde_json::Value;
 
 use super::computer_use as computer_use_runtime;
 use crate::driver::DriverEventSender;
 use crate::model::{ActivityKind, ProviderKind};
+
+/// Grace period between asking a provider child to exit and forcing it, so
+/// every long-lived provider transport reaps its process the same way
+/// `DeepSeekServer` always has.
+pub(crate) const CHILD_TERMINATE_GRACE: Duration = Duration::from_millis(1500);
+
+/// A provider child process reachable both from the thread that reaps it and
+/// from `Drop`, which must signal it without racing that reap.
+pub(crate) type SharedChild = Arc<Mutex<Child>>;
+
+/// Ask a still-running child to exit, escalating to a hard kill if it ignores
+/// the grace period. A no-op when the child has already exited.
+pub(crate) fn terminate_child(child: &mut Child, timeout: Duration) {
+    if child.try_wait().is_ok_and(|status| status.is_some()) {
+        return;
+    }
+    #[cfg(unix)]
+    unsafe {
+        let _ = libc::kill(-(child.id() as libc::pid_t), libc::SIGTERM);
+    }
+    #[cfg(not(unix))]
+    let _ = child.kill();
+
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        match child.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) => thread::sleep(Duration::from_millis(20)),
+            Err(_) => break,
+        }
+    }
+    #[cfg(unix)]
+    unsafe {
+        let _ = libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL);
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
 
 /// The context-window occupancy of one API call from a Claude-wire `usage`
 /// object (Claude Code and Amp share the format): prompt (fresh + cached) plus
@@ -547,6 +590,48 @@ mod tests {
         assert_eq!(
             provider_stderr_error(vec!["warning: optional integration unavailable".into()]),
             None
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminate_child_reaps_a_stubborn_child() {
+        use std::os::unix::process::CommandExt as _;
+        use std::process::Command;
+
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "trap '' TERM; sleep 30"])
+            .process_group(0)
+            .spawn()
+            .expect("spawn a stubborn child");
+
+        terminate_child(&mut child, Duration::from_millis(200));
+
+        assert!(
+            child.try_wait().is_ok_and(|status| status.is_some()),
+            "a child that ignores SIGTERM should still be reaped by the SIGKILL escalation"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminate_child_is_a_no_op_for_an_exited_child() {
+        use std::process::Command;
+
+        let mut child = Command::new("/usr/bin/true")
+            .spawn()
+            .expect("spawn a trivial child");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && child.try_wait().is_ok_and(|status| status.is_none()) {
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        let started = Instant::now();
+        terminate_child(&mut child, Duration::from_secs(5));
+
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "an already-exited child must return immediately, not wait out the grace period"
         );
     }
 }

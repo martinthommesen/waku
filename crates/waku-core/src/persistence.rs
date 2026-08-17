@@ -16,6 +16,8 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::io;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -675,6 +677,18 @@ fn to_io_error(error: impl std::fmt::Display) -> io::Error {
     io::Error::other(error.to_string())
 }
 
+/// Restricts a daemon-owned file to its own user. Missing is not an error:
+/// the SQLite `-wal`/`-shm` companions do not exist until the WAL pragma or
+/// a later write creates them.
+#[cfg(unix)]
+fn set_private_permissions(path: &Path) -> io::Result<()> {
+    match fs::set_permissions(path, fs::Permissions::from_mode(0o600)) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
 const SESSION_SEARCH_SNIPPET_CHARS: usize = 240;
 const SESSION_SEARCH_CONTEXT_BEFORE_CHARS: usize = 72;
 
@@ -952,14 +966,30 @@ impl StateStore {
 
     fn open(&self) -> io::Result<Connection> {
         if let Some(parent) = self.path.parent() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt as _;
+                fs::DirBuilder::new()
+                    .recursive(true)
+                    .mode(0o700)
+                    .create(parent)?;
+            }
+            #[cfg(not(unix))]
             fs::create_dir_all(parent)?;
         }
         let connection = Connection::open(&self.path).map_err(to_io_error)?;
+        #[cfg(unix)]
+        set_private_permissions(&self.path)?;
         // WAL keeps a streaming save from blocking on readers, and NORMAL
         // sync is the right durability trade for per-second UI state.
         connection
             .execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")
             .map_err(to_io_error)?;
+        #[cfg(unix)]
+        {
+            set_private_permissions(&self.path.with_extension("db-wal"))?;
+            set_private_permissions(&self.path.with_extension("db-shm"))?;
+        }
         apply_migrations(&connection)?;
         Ok(connection)
     }
@@ -3504,6 +3534,37 @@ mod tests {
         let state = store_in(&directory).load_or_fresh(PathBuf::from("/"));
         assert!(state.projects.is_empty());
         assert!(state.selected_session.is_none());
+        fs::remove_dir_all(directory).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn task_db_is_private() {
+        let directory = temporary_directory();
+        let db_path = directory.join("app.db");
+        let store = store_in(&directory);
+        let mut state = PersistedState::fresh(PathBuf::from("/tmp/project"));
+        store.save(&mut state).unwrap();
+
+        let file_mode = fs::metadata(&db_path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(file_mode, 0o600, "task database must not be group/world readable");
+        let directory_mode = fs::metadata(&directory).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            directory_mode, 0o700,
+            "task database directory must not be group/world readable"
+        );
+
+        for extension in ["db-wal", "db-shm"] {
+            let companion = db_path.with_extension(extension);
+            if let Ok(metadata) = fs::metadata(&companion) {
+                assert_eq!(
+                    metadata.permissions().mode() & 0o777,
+                    0o600,
+                    "{extension} companion file must not be group/world readable"
+                );
+            }
+        }
+
         fs::remove_dir_all(directory).ok();
     }
 }

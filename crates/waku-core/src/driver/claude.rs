@@ -82,6 +82,7 @@ pub struct ClaudeDriver {
     pending_user_inputs: Arc<Mutex<HashMap<String, Value>>>,
     mode: RuntimeMode,
     interaction_mode: InteractionMode,
+    child: super::support::SharedChild,
 }
 
 /// The permission posture Claude is launched with.
@@ -222,7 +223,7 @@ impl ClaudeDriver {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = crate::command_env::spawn(command)
+        let mut child = crate::command_env::spawn_in_own_group(command)
             .context("failed to start `claude` in streaming-input mode")?;
         let stdin = child
             .stdin
@@ -236,6 +237,7 @@ impl ClaudeDriver {
             .stderr
             .take()
             .ok_or_else(|| anyhow!("Claude stderr unavailable"))?;
+        let child = Arc::new(Mutex::new(child));
 
         // The cursor is known up front, so a rewind can address this session
         // before it has produced anything.
@@ -504,10 +506,21 @@ impl ClaudeDriver {
                 }
             })?;
 
+        let process_child = Arc::clone(&child);
         thread::Builder::new()
             .name("waku-claude-process".into())
             .spawn(move || {
-                let status = child.wait();
+                // Poll instead of blocking on `wait()` so the lock is never
+                // held while the child is merely still running, which would
+                // starve `Drop`'s `terminate_child` of the lock it needs to
+                // signal this same process.
+                let status = loop {
+                    match process_child.lock().try_wait() {
+                        Ok(Some(status)) => break Ok(status),
+                        Ok(None) => thread::sleep(Duration::from_millis(50)),
+                        Err(error) => break Err(error),
+                    }
+                };
                 let _ = reader_thread.join();
                 let _ = stderr_thread.join();
                 if let Ok(status) = status
@@ -528,6 +541,7 @@ impl ClaudeDriver {
             pending_user_inputs,
             mode,
             interaction_mode,
+            child,
         })
     }
 }
@@ -592,6 +606,7 @@ impl DriverControl for ClaudeDriver {
 impl Drop for ClaudeDriver {
     fn drop(&mut self) {
         let _ = self.commands.send(CommandMessage::Shutdown);
+        super::support::terminate_child(&mut self.child.lock(), super::support::CHILD_TERMINATE_GRACE);
     }
 }
 
@@ -1669,6 +1684,11 @@ mod tests {
             pending_user_inputs: Arc::new(Mutex::new(HashMap::new())),
             mode: RuntimeMode::FullAccess,
             interaction_mode: InteractionMode::Build,
+            child: Arc::new(Mutex::new(
+                Command::new("/usr/bin/true")
+                    .spawn()
+                    .expect("spawn a trivial child for the test"),
+            )),
         };
 
         assert!(driver.supports_steer());

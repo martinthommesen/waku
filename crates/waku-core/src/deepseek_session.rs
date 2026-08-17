@@ -56,9 +56,6 @@ watcher=$!
 while IFS= read -r _; do :; done
 "#;
 
-#[cfg(unix)]
-use std::os::unix::process::CommandExt as _;
-
 #[derive(Default)]
 struct EventHub {
     subscribers: Mutex<HashMap<String, Vec<Sender<Value>>>>,
@@ -168,10 +165,7 @@ impl DeepSeekServer {
         if let Some(dsh_home) = dsh_home {
             command.env("DSH_HOME", dsh_home);
         }
-        #[cfg(unix)]
-        command.process_group(0);
-
-        let mut child = crate::command_env::spawn(&mut command)
+        let mut child = crate::command_env::spawn_in_own_group(&mut command)
             .context("failed to start `dsh web --host 127.0.0.1 --port 0`")?;
         let stdout = child
             .stdout
@@ -226,7 +220,7 @@ impl DeepSeekServer {
                 );
             }
             if started_at.elapsed() >= SERVER_START_TIMEOUT {
-                terminate_child(&mut child, Duration::from_secs(2));
+                crate::driver::support::terminate_child(&mut child, Duration::from_secs(2));
                 let detail = diagnostics.join("\n");
                 bail!(
                     "timed out starting DeepSeek Harness{}",
@@ -385,7 +379,7 @@ impl DeepSeekServer {
 
     pub(crate) fn shutdown(&self, timeout: Duration) {
         self.streams.cancel();
-        terminate_child(&mut self.child.lock(), timeout);
+        crate::driver::support::terminate_child(&mut self.child.lock(), timeout);
     }
 }
 
@@ -420,33 +414,6 @@ fn parse_ready_port(line: &str) -> Option<u16> {
     (url.scheme() == "http" && url.host_str() == Some("127.0.0.1"))
         .then(|| url.port())
         .flatten()
-}
-
-fn terminate_child(child: &mut Child, timeout: Duration) {
-    if child.try_wait().is_ok_and(|status| status.is_some()) {
-        return;
-    }
-    #[cfg(unix)]
-    unsafe {
-        let _ = libc::kill(-(child.id() as libc::pid_t), libc::SIGTERM);
-    }
-    #[cfg(not(unix))]
-    let _ = child.kill();
-
-    let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
-        match child.try_wait() {
-            Ok(Some(_)) => return,
-            Ok(None) => thread::sleep(Duration::from_millis(20)),
-            Err(_) => break,
-        }
-    }
-    #[cfg(unix)]
-    unsafe {
-        let _ = libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL);
-    }
-    let _ = child.kill();
-    let _ = child.wait();
 }
 
 fn run_downlink(

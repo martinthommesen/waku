@@ -43,6 +43,7 @@ type PendingResponses = Arc<Mutex<HashMap<String, Sender<Result<Value, String>>>
 pub struct PiDriver {
     commands: Sender<CommandMessage>,
     computer_use: Option<computer_use_runtime::ComputerUseRuntime>,
+    child: super::support::SharedChild,
 }
 
 fn configure_pi_computer_use_command(
@@ -127,8 +128,8 @@ impl PiDriver {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child =
-            crate::command_env::spawn(command).context("failed to start `pi --mode rpc`")?;
+        let mut child = crate::command_env::spawn_in_own_group(command)
+            .context("failed to start `pi --mode rpc`")?;
         let stdin = child
             .stdin
             .take()
@@ -141,6 +142,7 @@ impl PiDriver {
             .stderr
             .take()
             .ok_or_else(|| anyhow!("Pi stderr unavailable"))?;
+        let child = Arc::new(Mutex::new(child));
 
         let (commands, command_rx) = unbounded();
         let pending = Arc::new(Mutex::new(HashMap::new()));
@@ -494,13 +496,26 @@ impl PiDriver {
                     }
                 })?;
 
-        // Nothing signals or kills the Pi process: it exits when the writer
-        // thread drops its stdin. Something still has to reap it, or every
-        // session that ever ran leaves a zombie behind for the life of the app.
+        // Pi normally exits on its own once the writer thread drops its
+        // stdin; `Drop`'s `terminate_child` only has to step in when a
+        // session is torn down before that happens. Either way, something
+        // still has to reap the process, or every session that ever ran
+        // leaves a zombie behind for the life of the app.
+        let process_child = Arc::clone(&child);
         thread::Builder::new()
             .name("waku-pi-process".into())
             .spawn(move || {
-                let status = child.wait();
+                // Poll instead of blocking on `wait()` so the lock is never
+                // held while the child is merely still running, which would
+                // starve `Drop`'s `terminate_child` of the lock it needs to
+                // signal this same process.
+                let status = loop {
+                    match process_child.lock().try_wait() {
+                        Ok(Some(status)) => break Ok(status),
+                        Ok(None) => thread::sleep(Duration::from_millis(50)),
+                        Err(error) => break Err(error),
+                    }
+                };
                 let _ = reader_thread.join();
                 let _ = stderr_thread.join();
                 match status {
@@ -526,6 +541,7 @@ impl PiDriver {
         Ok(Self {
             commands,
             computer_use,
+            child,
         })
     }
 }
@@ -605,6 +621,7 @@ impl Drop for PiDriver {
     fn drop(&mut self) {
         self.cancel_computer_use();
         let _ = self.commands.send(CommandMessage::Shutdown);
+        super::support::terminate_child(&mut self.child.lock(), super::support::CHILD_TERMINATE_GRACE);
     }
 }
 
@@ -1153,6 +1170,11 @@ mod tests {
         let driver = PiDriver {
             commands,
             computer_use: None,
+            child: Arc::new(Mutex::new(
+                std::process::Command::new("/usr/bin/true")
+                    .spawn()
+                    .expect("spawn a trivial child for the test"),
+            )),
         };
         let options = |mode, interaction_mode| SessionOptions {
             mode,

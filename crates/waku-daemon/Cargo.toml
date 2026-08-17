@@ -21,6 +21,7 @@ required-features = ["dev-binary"]
 [dependencies]
 anyhow = "1.0"
 serde_json = "1.0"
+signal-hook = "0.3"
 waku-core = { path = "../waku-core" }
 waku-protocol = { path = "../waku-protocol" }
 

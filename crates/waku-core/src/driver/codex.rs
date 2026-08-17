@@ -108,6 +108,7 @@ pub struct CodexDriver {
     computer_use_process_directory: Option<PathBuf>,
     computer_use_server_path: Option<PathBuf>,
     computer_use_preview_monitor: Option<computer_use_runtime::ComputerUsePreviewMonitor>,
+    child: super::support::SharedChild,
 }
 
 struct CodexComputerUseConfig {
@@ -224,8 +225,8 @@ impl CodexDriver {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child =
-            crate::command_env::spawn(command).context("failed to start `codex app-server`")?;
+        let mut child = crate::command_env::spawn_in_own_group(command)
+            .context("failed to start `codex app-server`")?;
 
         let stdin = child
             .stdin
@@ -239,6 +240,7 @@ impl CodexDriver {
             .stderr
             .take()
             .ok_or_else(|| anyhow!("Codex stderr unavailable"))?;
+        let child = Arc::new(Mutex::new(child));
         let computer_use_preview_monitor = computer_use_process_directory
             .as_ref()
             .map(|directory| {
@@ -757,10 +759,21 @@ impl CodexDriver {
                 }
             })?;
 
+        let process_child = Arc::clone(&child);
         thread::Builder::new()
             .name("waku-codex-process".into())
             .spawn(move || {
-                let status = child.wait();
+                // Poll instead of blocking on `wait()` so the lock is never
+                // held while the child is merely still running, which would
+                // starve `Drop`'s `terminate_child` of the lock it needs to
+                // signal this same process.
+                let status = loop {
+                    match process_child.lock().try_wait() {
+                        Ok(Some(status)) => break Ok(status),
+                        Ok(None) => thread::sleep(Duration::from_millis(50)),
+                        Err(error) => break Err(error),
+                    }
+                };
                 let _ = reader_thread.join();
                 let _ = stderr_thread.join();
                 match status {
@@ -790,6 +803,7 @@ impl CodexDriver {
             computer_use_process_directory,
             computer_use_server_path,
             computer_use_preview_monitor,
+            child,
         })
     }
 }
@@ -945,6 +959,7 @@ impl Drop for CodexDriver {
             let _ = fs::remove_dir_all(directory);
         }
         let _ = self.commands.send(CommandMessage::Shutdown);
+        super::support::terminate_child(&mut self.child.lock(), super::support::CHILD_TERMINATE_GRACE);
     }
 }
 
@@ -2402,6 +2417,11 @@ mod tests {
             computer_use_process_directory: None,
             computer_use_server_path: None,
             computer_use_preview_monitor: None,
+            child: Arc::new(Mutex::new(
+                Command::new("/usr/bin/true")
+                    .spawn()
+                    .expect("spawn a trivial child for the test"),
+            )),
         };
 
         assert!(driver.apply_options(session_options(

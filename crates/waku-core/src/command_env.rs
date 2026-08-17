@@ -51,6 +51,15 @@ pub fn spawn(command: &mut Command) -> io::Result<Child> {
     with_sigchld_unblocked(|| command.spawn())
 }
 
+/// Spawn `command` through [`spawn`] in its own process group, so a later
+/// SIGTERM/SIGKILL sent to `-pid` reaches every descendant a provider CLI
+/// forked, not just the direct child.
+pub fn spawn_in_own_group(command: &mut Command) -> io::Result<Child> {
+    #[cfg(unix)]
+    command.process_group(0);
+    spawn(command)
+}
+
 /// Spawn `command` through [`spawn`] and collect its output.
 ///
 /// `Command::spawn` inherits standard streams by default, unlike

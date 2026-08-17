@@ -16,6 +16,9 @@ the original feature bullet instead of adding separate entries for them.
 
 ## [unreleased]
 
+- Ship prebuilt Linux release archives (x86_64 and arm64); building from source
+  is no longer required
+
 ## [0.1.3]
 
 - Pin Codex and Claude commit message generation to cheap models: gpt-5.6-luna and claude-4.5-haiku

@@ -27,7 +27,7 @@ jobs:
 
       - name: Install Rust
         run: |
-          rustup toolchain install 1.96.0 --profile minimal
+          rustup toolchain install 1.96.0 --profile minimal --component rustfmt --component clippy
           rustup default 1.96.0
 
       - name: Install Bun
@@ -59,14 +59,24 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-rust-1.96.0-cargo-
 
+      - name: Format check (informational until pre-existing drift is cleaned up)
+        continue-on-error: true
+        run: cargo fmt --package waku --package waku-protocol --package waku-client --package waku-core --package waku-daemon -- --check
+
+      - name: Clippy (informational)
+        continue-on-error: true
+        run: cargo clippy --workspace --all-targets
+
       - name: Run tests
         run: cargo test --locked
 
       - name: Install JavaScript dependencies
         run: bun install --frozen-lockfile
 
-      - name: Check generated protocol and browser client
+      - name: Check generated protocol and browser clients
         run: |
           bun run protocol:check
           bun run --filter @waku/client check
           bun run --filter @waku/client test
+          bun run --filter @waku/web typecheck
+          bun run --filter @waku/web test

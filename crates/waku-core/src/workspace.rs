@@ -221,7 +221,47 @@ fn resolve_workspace_path(root: &Path, relative: &Path) -> anyhow::Result<PathBu
     {
         bail!("workspace path must be a non-empty relative path");
     }
-    Ok(root.join(relative))
+    let canonical_root = fs::canonicalize(root)
+        .with_context(|| format!("could not resolve workspace root {}", root.display()))?;
+    let target = canonicalize_deepest_existing(&canonical_root.join(relative))?;
+    if !target.starts_with(&canonical_root) {
+        bail!("workspace path escapes the workspace root");
+    }
+    Ok(target)
+}
+
+/// Canonicalizes as much of `path` as already exists on disk — resolving any
+/// symlink in that existing prefix — then re-appends the remaining
+/// not-yet-created components verbatim.
+///
+/// A rejected literal `..` component is not enough: a symlink inside the
+/// workspace root can still point outside it, and a component-by-component
+/// join would silently follow that link. A path that does not exist yet
+/// (e.g. a new file about to be written) cannot itself be a symlink, so only
+/// its existing ancestor needs resolving to catch a symlinked ancestor
+/// directory that would carry the write outside the root.
+fn canonicalize_deepest_existing(path: &Path) -> anyhow::Result<PathBuf> {
+    let mut existing = path;
+    let mut remainder = Vec::new();
+    loop {
+        match fs::canonicalize(existing) {
+            Ok(canonical) => {
+                return Ok(remainder
+                    .into_iter()
+                    .rev()
+                    .fold(canonical, |resolved, part| resolved.join(part)));
+            }
+            Err(_) => {
+                let parent = existing.parent();
+                let name = existing.file_name();
+                let (Some(parent), Some(name)) = (parent, name) else {
+                    bail!("workspace path has no accessible ancestor");
+                };
+                remainder.push(name.to_owned());
+                existing = parent;
+            }
+        }
+    }
 }
 
 fn list_tree(root: &Path, expanded_paths: &HashSet<PathBuf>) -> Vec<WorkingTreeEntry> {
@@ -626,6 +666,69 @@ mod tests {
         );
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workspace_read_follows_symlink_inside_root() {
+        let root = std::env::temp_dir().join(format!("waku-workspace-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("real.txt"), "actual content\n").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(root.join("real.txt"), root.join("link.txt")).unwrap();
+
+        let WorkspaceResult::TextFile { content } = execute(WorkspaceOperation::ReadTextFile {
+            root: root.clone(),
+            relative_path: PathBuf::from("link.txt"),
+        })
+        .unwrap() else {
+            panic!("unexpected workspace response")
+        };
+        assert_eq!(content, "actual content\n");
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn workspace_read_rejects_symlink_escaping_root() {
+        let outside = std::env::temp_dir().join(format!("waku-outside-{}", Uuid::new_v4()));
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("secret.txt"), "top secret\n").unwrap();
+
+        let root = std::env::temp_dir().join(format!("waku-workspace-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(outside.join("secret.txt"), root.join("escape.txt")).unwrap();
+
+        let result = execute(WorkspaceOperation::ReadTextFile {
+            root: root.clone(),
+            relative_path: PathBuf::from("escape.txt"),
+        });
+        assert!(result.is_err(), "a symlink escaping the root must be rejected");
+
+        fs::remove_dir_all(&root).ok();
+        fs::remove_dir_all(&outside).ok();
+    }
+
+    #[test]
+    fn workspace_write_rejects_symlink_escaping_root() {
+        let outside = std::env::temp_dir().join(format!("waku-outside-{}", Uuid::new_v4()));
+        fs::create_dir_all(&outside).unwrap();
+
+        let root = std::env::temp_dir().join(format!("waku-workspace-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, root.join("escape-dir")).unwrap();
+
+        let result = execute(WorkspaceOperation::WriteTextFile {
+            root: root.clone(),
+            relative_path: PathBuf::from("escape-dir/new-file.txt"),
+            content: "malicious\n".to_owned(),
+        });
+        assert!(result.is_err(), "a symlinked ancestor escaping the root must be rejected");
+        assert!(!outside.join("new-file.txt").exists());
+
+        fs::remove_dir_all(&root).ok();
+        fs::remove_dir_all(&outside).ok();
     }
 
     #[test]

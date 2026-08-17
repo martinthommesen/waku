@@ -48,7 +48,9 @@ impl Waku {
         &self,
         message_index: usize,
     ) -> (Option<SharedString>, Option<u64>) {
-        self.refresh_transcript_row_kinds();
+        // `sync_transcript_rows` already refolds the fingerprint once per
+        // frame before any row builder runs; re-checking it here per row
+        // would be the whole-session fold this cache exists to avoid.
         let fingerprint = self.transcript_row_kinds_fingerprint.get();
         if self.assistant_footer_fingerprint.get() != fingerprint {
             self.assistant_footer_cache.borrow_mut().clear();

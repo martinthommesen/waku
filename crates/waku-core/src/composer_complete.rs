@@ -208,6 +208,22 @@ pub fn discover_slash_commands(provider: ProviderKind, project_root: &Path) -> V
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
         .or_else(|| home.as_deref().map(|home| home.join(".claude")));
+    discover_slash_commands_in(
+        provider,
+        project_root,
+        home.as_deref(),
+        claude_config_dir.as_deref(),
+    )
+}
+
+/// Same as [`discover_slash_commands`] with the user roots injected, so tests
+/// never read the developer's real home directory.
+pub(crate) fn discover_slash_commands_in(
+    provider: ProviderKind,
+    project_root: &Path,
+    home: Option<&Path>,
+    claude_config_dir: Option<&Path>,
+) -> Vec<SlashCommand> {
     let mut commands = Vec::new();
     match provider {
         ProviderKind::Claude => {
@@ -217,7 +233,7 @@ pub fn discover_slash_commands(provider: ProviderKind, project_root: &Path) -> V
                 false,
                 &mut commands,
             );
-            if let Some(config_dir) = claude_config_dir.as_deref() {
+            if let Some(config_dir) = claude_config_dir {
                 scan_command_files(
                     &config_dir.join("commands"),
                     CommandScope::User,
@@ -226,14 +242,14 @@ pub fn discover_slash_commands(provider: ProviderKind, project_root: &Path) -> V
                 );
             }
             scan_skill_files(&project_root.join(".claude/skills"), &mut commands);
-            if let Some(config_dir) = claude_config_dir.as_deref() {
+            if let Some(config_dir) = claude_config_dir {
                 scan_skill_files(&config_dir.join("skills"), &mut commands);
             }
             commands.extend(builtin_claude_commands());
         }
         ProviderKind::Codex => {
             scan_skill_files(&project_root.join(".codex/skills"), &mut commands);
-            if let Some(home) = home.as_deref() {
+            if let Some(home) = home {
                 scan_command_files(
                     &home.join(".codex/prompts"),
                     CommandScope::User,
@@ -253,7 +269,7 @@ pub fn discover_slash_commands(provider: ProviderKind, project_root: &Path) -> V
             scan_skill_files(&project_root.join(".opencode/skills"), &mut commands);
             // OpenCode also loads Claude-compatible skill trees.
             scan_skill_files(&project_root.join(".claude/skills"), &mut commands);
-            if let Some(home) = home.as_deref() {
+            if let Some(home) = home {
                 scan_command_files(
                     &home.join(".config/opencode/command"),
                     CommandScope::User,
@@ -272,7 +288,7 @@ pub fn discover_slash_commands(provider: ProviderKind, project_root: &Path) -> V
                 &mut commands,
             );
             scan_skill_files(&project_root.join(".cursor/skills"), &mut commands);
-            if let Some(home) = home.as_deref() {
+            if let Some(home) = home {
                 scan_command_files(
                     &home.join(".cursor/commands"),
                     CommandScope::User,
@@ -290,7 +306,7 @@ pub fn discover_slash_commands(provider: ProviderKind, project_root: &Path) -> V
                 &mut commands,
             );
             scan_skill_files(&project_root.join(".pi/skills"), &mut commands);
-            if let Some(home) = home.as_deref() {
+            if let Some(home) = home {
                 scan_command_files(
                     &home.join(".pi/agent/prompts"),
                     CommandScope::User,
@@ -301,7 +317,7 @@ pub fn discover_slash_commands(provider: ProviderKind, project_root: &Path) -> V
             }
         }
         ProviderKind::Amp => {
-            if let Some(home) = home.as_deref() {
+            if let Some(home) = home {
                 scan_skill_files(&home.join(".config/agents/skills"), &mut commands);
             }
         }
@@ -311,7 +327,7 @@ pub fn discover_slash_commands(provider: ProviderKind, project_root: &Path) -> V
     // The cross-tool skill standard, read by Amp and OpenCode among others;
     // Waku lists it for every provider.
     scan_skill_files(&project_root.join(".agents/skills"), &mut commands);
-    if let Some(home) = home.as_deref() {
+    if let Some(home) = home {
         scan_skill_files(&home.join(".agents/skills"), &mut commands);
     }
     scan_command_files(
@@ -320,7 +336,7 @@ pub fn discover_slash_commands(provider: ProviderKind, project_root: &Path) -> V
         true,
         &mut commands,
     );
-    if let Some(home) = home.as_deref() {
+    if let Some(home) = home {
         scan_command_files(
             &home.join(".config/waku/commands"),
             CommandScope::User,
@@ -1160,13 +1176,53 @@ mod tests {
         assert_eq!(highlight_byte_ranges("é.rs", &[0, 1], 0), vec![0..3]);
     }
 
+    /// A user `Skill` scope entry named `review` beats the `Builtin` Waku
+    /// template of the same name — this is the precedence that made
+    /// `every_provider_offers_slash_commands_out_of_the_box` flaky before
+    /// the discovery tests injected a fake home instead of reading `$HOME`.
+    #[test]
+    fn user_skill_of_same_name_wins_over_waku_template() {
+        let root = std::env::temp_dir().join(format!("waku-precedence-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let home = root.join("home");
+        let skill_dir = home.join(".agents/skills/review");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: review\ndescription: x\n---\nBody",
+        )
+        .unwrap();
+        let claude_config_dir = home.join(".claude");
+        let commands = discover_slash_commands_in(
+            ProviderKind::Amp,
+            &root,
+            Some(&home),
+            Some(&claude_config_dir),
+        );
+        let review = commands
+            .iter()
+            .find(|command| command.name == "review")
+            .expect("Amp must still offer /review");
+        assert_eq!(review.scope, CommandScope::Skill);
+        assert!(
+            review.template.is_none(),
+            "the user's skill must win over the Waku builtin template"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn every_provider_offers_slash_commands_out_of_the_box() {
         let root = std::env::temp_dir().join(format!("waku-empty-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
+        let home = root.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let claude_config_dir = home.join(".claude");
         for provider in ProviderKind::ALL {
-            let commands = discover_slash_commands(provider, &root);
+            let commands =
+                discover_slash_commands_in(provider, &root, Some(&home), Some(&claude_config_dir));
             for expected in ["init", "review", "commit"] {
                 let command = commands
                     .iter()
@@ -1186,8 +1242,18 @@ mod tests {
             }
         }
         // The instructions file matches each ecosystem's convention.
-        let claude = discover_slash_commands(ProviderKind::Claude, &root);
-        let amp = discover_slash_commands(ProviderKind::Amp, &root);
+        let claude = discover_slash_commands_in(
+            ProviderKind::Claude,
+            &root,
+            Some(&home),
+            Some(&claude_config_dir),
+        );
+        let amp = discover_slash_commands_in(
+            ProviderKind::Amp,
+            &root,
+            Some(&home),
+            Some(&claude_config_dir),
+        );
         assert!(
             claude
                 .iter()
@@ -1231,8 +1297,12 @@ mod tests {
             "---\nname: deploy-runbook\ndescription: How we deploy\n---\nSteps…",
         )
         .unwrap();
+        let home = root.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let claude_config_dir = home.join(".claude");
         for provider in ProviderKind::ALL {
-            let commands = discover_slash_commands(provider, &root);
+            let commands =
+                discover_slash_commands_in(provider, &root, Some(&home), Some(&claude_config_dir));
             let skill = commands
                 .iter()
                 .find(|command| command.name == "deploy-runbook")
@@ -1244,7 +1314,12 @@ mod tests {
             );
         }
         // Raw passthrough end to end: no expansion applies at submit.
-        let commands = discover_slash_commands(ProviderKind::Amp, &root);
+        let commands = discover_slash_commands_in(
+            ProviderKind::Amp,
+            &root,
+            Some(&home),
+            Some(&claude_config_dir),
+        );
         assert_eq!(
             expanded_submission("/deploy-runbook staging", &commands),
             None
@@ -1265,7 +1340,7 @@ mod tests {
             )
             .unwrap();
             assert!(
-                discover_slash_commands(provider, &root)
+                discover_slash_commands_in(provider, &root, Some(&home), Some(&claude_config_dir))
                     .iter()
                     .any(|command| command.name == "native-skill"),
                 "{} misses its project skill tree",
