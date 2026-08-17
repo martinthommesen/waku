@@ -9,7 +9,7 @@ mod computer_use;
 mod deepseek;
 mod opencode;
 mod pi;
-mod support;
+pub(crate) mod support;
 mod title_refresh;
 
 use std::path::PathBuf;
